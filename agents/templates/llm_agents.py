@@ -363,7 +363,9 @@ Reply with a few sentences of plain-text strategy observation about the frame to
             """
 # CONTEXT:
 You are an agent playing a dynamic game. Your objective is to
-WIN and avoid GAME_OVER while minimizing actions.  You can move up, down, left, right, and use the spacebar to interact with the game.
+WIN and avoid GAME_OVER while minimizing actions. There is no resource collection or score maximization.
+You are looking for the exit.
+You can move up, down, left, right, and use the spacebar to interact with the game.
 
 One action produces one Frame. One Frame is made of one or more sequential
 Grids. Each Grid is a matrix size INT<0,63> by INT<0,63> filled with
@@ -402,7 +404,7 @@ Call exactly one action.
 class ReasoningLLM(LLM, Agent):
     """An LLM agent that uses o4-mini and captures reasoning metadata in the action.reasoning field."""
 
-    MAX_ACTIONS = 80
+    MAX_ACTIONS = 10
     DO_OBSERVATION = True
     MODEL_REQUIRES_TOOLS = True
     MODEL = "o4-mini"
@@ -480,7 +482,7 @@ class FastLLM(LLM, Agent):
             """
 # CONTEXT:
 You are an agent playing a dynamic game. Your objective is to
-WIN and avoid GAME_OVER while minimizing actions.
+WIN and avoid GAME_OVER while minimizing actions.  You can move up, down, left, right, and use the spacebar to interact with the game.
 
 One action produces one Frame. One Frame is made of one or more sequential
 Grids. Each Grid is a matrix size INT<0,63> by INT<0,63> filled with
@@ -495,7 +497,7 @@ Call exactly one action.
 class GuidedLLM(LLM, Agent):
     """Similar to LLM, with explicit human-provided rules in the user prompt to increase success rate."""
 
-    MAX_ACTIONS = 80
+    MAX_ACTIONS = 10
     DO_OBSERVATION = True
     MODEL = "o3"
     MODEL_REQUIRES_TOOLS = True
@@ -570,7 +572,7 @@ class GuidedLLM(LLM, Agent):
             """
 # CONTEXT:
 You are an agent playing a dynamic game. Your objective is to
-WIN and avoid GAME_OVER while minimizing actions.
+WIN and avoid GAME_OVER while minimizing actions.  You can move up, down, left, right, and use the spacebar to interact with the game.
 
 One action produces one Frame. One Frame is made of one or more sequential
 Grids. Each Grid is a matrix size INT<0,63> by INT<0,63> filled with
@@ -619,7 +621,9 @@ class MyCustomLLM(LLM):
             """
 # CONTEXT:
 You are an agent playing a dynamic game. Your objective is to
-WIN and avoid GAME_OVER while minimizing actions.
+WIN and avoid GAME_OVER while minimizing actions.  There is no resource collection or score maximization.
+You are looking for the exit.
+You can move up, down, left, right, and use the spacebar to interact with the game.
 
 One action produces one Frame. One Frame is made of one or more sequential
 Grids. Each Grid is a matrix size INT<0,63> by INT<0,63> filled with
