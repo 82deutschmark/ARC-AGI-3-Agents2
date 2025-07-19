@@ -62,11 +62,26 @@ def main() -> None:
     logger.setLevel(log_level)
     formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
 
-    stdout_handler = logging.StreamHandler(sys.stdout)
+    # Fix for Windows Unicode encoding issues - Claude Sonnet 4
+    # Configure stdout handler with UTF-8 encoding to handle Unicode characters
+    if sys.platform == "win32":
+        try:
+            # On Windows, try to reconfigure stdout for UTF-8 encoding
+            stdout_handler = logging.StreamHandler(sys.stdout)
+            stdout_handler.stream.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, OSError):
+            # Fallback: Use a TextIOWrapper for UTF-8 encoding
+            import io
+            utf8_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+            stdout_handler = logging.StreamHandler(utf8_stdout)
+    else:
+        stdout_handler = logging.StreamHandler(sys.stdout)
+    
     stdout_handler.setLevel(log_level)
     stdout_handler.setFormatter(formatter)
 
-    file_handler = logging.FileHandler("logs.log", mode="w")
+    # Also configure file handler with UTF-8 encoding
+    file_handler = logging.FileHandler("logs.log", mode="w", encoding='utf-8')
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
 
