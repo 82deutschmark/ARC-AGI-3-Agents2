@@ -50,7 +50,8 @@ def cleanup(
             logger.info(json.dumps(scorecard.model_dump(), indent=2))
             swarm.cleanup(scorecard)
 
-    sys.exit(0)
+    if signum is not None:
+        sys.exit(0)
 
 
 def main() -> None:

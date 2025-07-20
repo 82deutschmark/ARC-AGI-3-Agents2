@@ -176,9 +176,6 @@ class Agent(ABC):
             if hasattr(self, "recorder") and not self.is_playback:
                 if scorecard:
                     self.recorder.record(scorecard.get(self.game_id))
-                else:
-                    scorecard_obj = self.get_scorecard()
-                    self.recorder.record(scorecard_obj.get(self.game_id))
                 logger.info(
                     f"recording for {self.name} is available in {self.recorder.filename}"
                 )
