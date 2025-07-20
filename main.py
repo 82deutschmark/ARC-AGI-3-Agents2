@@ -34,7 +34,6 @@ HEADERS = {
 
 def run_agent(swarm: Swarm) -> None:
     swarm.main()
-    os.kill(os.getpid(), signal.SIGINT)
 
 
 def cleanup(
@@ -179,7 +178,14 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, partial(cleanup, swarm))  # handler for Ctrl+C
 
-    agent_thread.join()
+    try:
+        agent_thread.join()
+    except KeyboardInterrupt:
+        # This allows Ctrl+C to interrupt the join and trigger the signal handler
+        pass
+
+    # Explicitly call cleanup after the agent thread is done, in case SIGINT wasn't caught
+    cleanup(swarm, None, None)
 
 
 if __name__ == "__main__":
