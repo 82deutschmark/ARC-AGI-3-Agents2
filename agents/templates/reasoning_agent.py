@@ -44,9 +44,9 @@ class ReasoningActionResponse(BaseModel):
 class ReasoningAgent(ReasoningLLM):
     """A reasoning agent that tracks screen history and builds hypotheses about game rules."""
 
-    MAX_ACTIONS = 400
+    MAX_ACTIONS = 20
     DO_OBSERVATION = True
-    MODEL = "o4-mini"
+    MODEL = "o4-mini-2025-04-16"
     MESSAGE_LIMIT = 5
     REASONING_EFFORT = "high"
 

@@ -51,6 +51,7 @@ class Swarm:
         self.headers = {
             "X-API-Key": os.getenv("ARC_API_KEY", ""),
             "Accept": "application/json",
+            "Content-Type": "application/json; charset=utf-8",  # Explicit UTF-8 for Windows - Claude Sonnet 4
         }
         self._session = requests.Session()
         self._session.headers.update(self.headers)
@@ -99,6 +100,7 @@ class Swarm:
 
         # all agents are now done
         card_id_for_url = self.card_id
+        logger.debug(f"Swarm: Closing scorecard with card_id: {self.card_id}")
         scorecard = self.close_scorecard(self.card_id)
         logger.info("--- FINAL SCORECARD REPORT ---")
         logger.info(json.dumps(scorecard.model_dump(), indent=2))
@@ -108,16 +110,17 @@ class Swarm:
             scorecard_url = f"{self.ROOT_URL}/scorecards/{card_id_for_url}"
             logger.info(f"View your scorecard online: {scorecard_url}")
 
+        logger.debug(f"Swarm: Starting cleanup for {len(self.agents)} agents with scorecard")
         self.cleanup(scorecard)
 
         return scorecard
 
     def open_scorecard(self) -> str:
-        json_str = json.dumps({"tags": self.tags})
-
+        # Fix for Windows encoding issue - Claude Sonnet 4
+        # Pass data directly to json parameter to ensure UTF-8 encoding
         r = self._session.post(
             f"{self.ROOT_URL}/api/scorecard/open",
-            json=json.loads(json_str),
+            json={"tags": self.tags},
             headers=self.headers,
         )
         if "error" in r.json():
@@ -126,10 +129,11 @@ class Swarm:
 
     def close_scorecard(self, card_id: str) -> Scorecard:
         self.card_id = None
-        json_str = json.dumps({"card_id": card_id})
+        # Fix for Windows encoding issue - Claude Sonnet 4  
+        # Pass data directly to json parameter to ensure UTF-8 encoding
         r = self._session.post(
             f"{self.ROOT_URL}/api/scorecard/close",
-            json=json.loads(json_str),
+            json={"card_id": card_id},
             headers=self.headers,
         )
         if "error" in r.json():
@@ -138,7 +142,10 @@ class Swarm:
 
     def cleanup(self, scorecard: Optional[Scorecard] = None) -> None:
         """Cleanup all agents."""
-        for a in self.agents:
+        logger.debug(f"Swarm cleanup: Processing {len(self.agents)} agents")
+        for i, a in enumerate(self.agents):
+            logger.debug(f"Swarm cleanup: Cleaning up agent {i+1}/{len(self.agents)}: {a.name}")
             a.cleanup(scorecard)
         if hasattr(self, "_session"):
             self._session.close()
+        logger.debug(f"Swarm cleanup: Complete")

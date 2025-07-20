@@ -6,6 +6,7 @@ from .agent import Agent, Playback
 from .recorder import Recorder
 from .swarm import Swarm
 from .templates.llm_agents import LLM, FastLLM, GuidedLLM, ReasoningLLM
+from .templates.locksmith_agent import LockSmithExpert
 from .templates.random_agent import Random
 from .templates.reasoning_agent import ReasoningAgent
 from .templates.smolagents import SmolCodingAgent, SmolVisionAgent
@@ -24,6 +25,7 @@ for rec in Recorder.list():
 
 # update the agent dictionary to include subclasses of LLM class
 AVAILABLE_AGENTS["reasoningagent"] = ReasoningAgent
+AVAILABLE_AGENTS["locksmithexpert"] = LockSmithExpert
 
 __all__ = [
     "Swarm",
@@ -33,6 +35,7 @@ __all__ = [
     "ReasoningLLM",
     "GuidedLLM",
     "ReasoningAgent",
+    "LockSmithExpert",
     "SmolCodingAgent",
     "SmolVisionAgent",
     "Agent",

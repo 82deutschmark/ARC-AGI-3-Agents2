@@ -61,6 +61,7 @@ class Agent(ABC):
         self.headers = {
             "X-API-Key": os.getenv("ARC_API_KEY", ""),
             "Accept": "application/json",
+            "Content-Type": "application/json; charset=utf-8",  # Explicit UTF-8 for Windows - Claude Sonnet 4
         }
         # Reuse session
         self._session = requests.Session()
@@ -82,7 +83,7 @@ class Agent(ABC):
                 )
             self.action_counter += 1
 
-        self.cleanup()
+        # Cleanup will be handled by swarm with proper scorecard - Claude Sonnet 4
 
     @property
     def state(self) -> GameState:
@@ -137,10 +138,11 @@ class Agent(ABC):
         if self.game_id:
             data["game_id"] = self.game_id
 
-        json_str = json.dumps(data)
+        # Fix for Windows encoding issue - Claude Sonnet 4
+        # Pass data directly to json parameter to ensure UTF-8 encoding
         r = self._session.post(
             f"{self.ROOT_URL}/api/cmd/{action.name}",
-            json=json.loads(json_str),
+            json=data,
             headers=self.headers,
         )
         if "error" in r.json():
@@ -159,6 +161,9 @@ class Agent(ABC):
 
     def get_scorecard(self) -> Scorecard:
         """Get the scorecard for this agent's game as a Scorecard pydantic object."""
+        # Debug logging - Claude Sonnet 4
+        logger.debug(f"Agent {self.name} requesting scorecard for card_id: {self.card_id}, game_id: {self.game_id}")
+        
         r = self._session.get(
             f"{self.ROOT_URL}/api/scorecard/{self.card_id}/{self.game_id}",
             timeout=1,
@@ -166,7 +171,10 @@ class Agent(ABC):
         )
         response_data = r.json()
         if "error" in response_data:
-            logger.warning(f"Exception during scorecard request: {response_data}")
+            logger.warning(f"Agent {self.name} - Exception during scorecard request: {response_data}")
+            logger.warning(f"Agent {self.name} - Attempted URL: {self.ROOT_URL}/api/scorecard/{self.card_id}/{self.game_id}")
+            # Return empty scorecard instead of crashing - Claude Sonnet 4
+            return Scorecard(card_id=self.card_id, cards={})
         return Scorecard.model_validate(response_data)
 
     def cleanup(self, scorecard: Optional[Scorecard] = None) -> None:
@@ -174,11 +182,37 @@ class Agent(ABC):
         if self._cleanup:
             self._cleanup = False  # only cleanup once per agent
             if hasattr(self, "recorder") and not self.is_playback:
+                # Claude Sonnet 4: Always record agent's own attempt data regardless of API scorecard status
+                # This ensures every attempt gets recorded, even incomplete games that aren't in the API scorecard
+                attempt_summary = {
+                    "agent_attempt_summary": {
+                        "game_id": self.game_id,
+                        "final_score": self.score,
+                        "final_state": self.state.name,
+                        "total_actions": self.action_counter,
+                        "max_actions_reached": self.action_counter >= self.MAX_ACTIONS,
+                        "duration_seconds": self.seconds,
+                        "average_fps": self.fps,
+                        "agent_name": self.name,
+                        "card_id": self.card_id,
+                        "guid": self.guid,
+                        "exit_reason": "MAX_ACTIONS" if self.action_counter >= self.MAX_ACTIONS else self.state.name
+                    }
+                }
+                self.recorder.record(attempt_summary)
+                logger.debug(f"Agent {self.name} cleanup: Recorded attempt summary - Score: {self.score}, Actions: {self.action_counter}, State: {self.state.name}")
+                
+                # Also try to record API scorecard data if available (for completeness, but not required)
                 if scorecard:
-                    self.recorder.record(scorecard.get(self.game_id))
+                    game_data = scorecard.get(self.game_id)
+                    if game_data:
+                        self.recorder.record({"api_scorecard_data": game_data})
+                        logger.debug(f"Agent {self.name} cleanup: Also recorded API scorecard data")
+                    else:
+                        logger.debug(f"Agent {self.name} cleanup: No API scorecard data found for game {self.game_id} (expected for incomplete games)")
                 else:
-                    scorecard_obj = self.get_scorecard()
-                    self.recorder.record(scorecard_obj.get(self.game_id))
+                    logger.debug(f"Agent {self.name} cleanup: No scorecard provided by swarm")
+                    
                 logger.info(
                     f"recording for {self.name} is available in {self.recorder.filename}"
                 )
