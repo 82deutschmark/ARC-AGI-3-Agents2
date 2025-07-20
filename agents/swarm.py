@@ -116,36 +116,79 @@ class Swarm:
         return scorecard
 
     def open_scorecard(self) -> str:
-        # Fix for Windows encoding issue - Claude Sonnet 4
-        # Pass data directly to json parameter to ensure UTF-8 encoding
-        r = self._session.post(
-            f"{self.ROOT_URL}/api/scorecard/open",
-            json={"tags": self.tags},
-            headers=self.headers,
-        )
-        if "error" in r.json():
-            logger.warning(f"Exception during open scorecard: {r.json()}")
-        return str(r.json()["card_id"])
+        try:
+            r = self._session.post(
+                f"{self.ROOT_URL}/api/scorecard/open",
+                json={"tags": self.tags},
+                headers=self.headers,
+                timeout=5
+            )
+            r.raise_for_status()  # Raise exception for HTTP errors
+            response = r.json()
+            
+            if "error" in response:
+                logger.error(f"Error opening scorecard: {response}")
+                raise Exception(f"Scorecard API error: {response['error']}")
+                
+            card_id = str(response["card_id"])
+            logger.info(f"Successfully opened scorecard with ID: {card_id}")
+            return card_id
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to open scorecard: {str(e)}")
+            raise Exception(f"Failed to open scorecard: {str(e)}")
 
     def close_scorecard(self, card_id: str) -> Scorecard:
-        self.card_id = None
-        # Fix for Windows encoding issue - Claude Sonnet 4  
-        # Pass data directly to json parameter to ensure UTF-8 encoding
-        r = self._session.post(
-            f"{self.ROOT_URL}/api/scorecard/close",
-            json={"card_id": card_id},
-            headers=self.headers,
-        )
-        if "error" in r.json():
-            logger.warning(f"Exception during open scorecard: {r.json()}")
-        return Scorecard.model_validate(r.json())
+        try:
+            self.card_id = None
+            # Ensure proper UTF-8 encoding for Windows
+            data = {"card_id": card_id}
+            json_data = json.dumps(data, ensure_ascii=False).encode('utf-8')
+            
+            r = self._session.post(
+                f"{self.ROOT_URL}/api/scorecard/close",
+                data=json_data,
+                headers={
+                    **self.headers,
+                    "Content-Type": "application/json; charset=utf-8"
+                },
+                timeout=5
+            )
+            r.raise_for_status()  # Raise exception for HTTP errors
+            response = r.json()
+            
+            if "error" in response:
+                logger.error(f"Error closing scorecard: {response}")
+                raise Exception(f"Scorecard API error: {response['error']}")
+                
+            scorecard = Scorecard.model_validate(response)
+            logger.info(f"Successfully closed scorecard with ID: {card_id}")
+            return scorecard
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to close scorecard: {str(e)}")
+            raise Exception(f"Failed to close scorecard: {str(e)}")
 
     def cleanup(self, scorecard: Optional[Scorecard] = None) -> None:
-        """Cleanup all agents."""
-        logger.debug(f"Swarm cleanup: Processing {len(self.agents)} agents")
-        for i, a in enumerate(self.agents):
-            logger.debug(f"Swarm cleanup: Cleaning up agent {i+1}/{len(self.agents)}: {a.name}")
-            a.cleanup(scorecard)
-        if hasattr(self, "_session"):
-            self._session.close()
-        logger.debug(f"Swarm cleanup: Complete")
+        """Cleanup all agents and ensure proper session closure."""
+        try:
+            logger.debug(f"Swarm cleanup: Processing {len(self.agents)} agents")
+            for i, a in enumerate(self.agents):
+                logger.debug(f"Swarm cleanup: Cleaning up agent {i+1}/{len(self.agents)}: {a.name}")
+                try:
+                    a.cleanup(scorecard)
+                except Exception as e:
+                    logger.error(f"Error cleaning up agent {a.name}: {str(e)}")
+            
+            if hasattr(self, "_session"):
+                try:
+                    self._session.close()
+                    logger.debug("Swarm cleanup: Session closed successfully")
+                except Exception as e:
+                    logger.error(f"Error closing session: {str(e)}")
+            
+            logger.debug("Swarm cleanup: Complete")
+            
+        except Exception as e:
+            logger.error(f"Error during swarm cleanup: {str(e)}")
+            raise

@@ -19,7 +19,7 @@ logger = logging.getLogger()
 class LockSmithExpert(ReasoningLLM):
     """A highly specialized agent for the LockSmith game with accurate game mechanics."""
     
-    MAX_ACTIONS = 20
+    MAX_ACTIONS = 10
     DO_OBSERVATION = True
     MODEL = "o4-mini-2025-04-16"
     MODEL_REQUIRES_TOOLS = True

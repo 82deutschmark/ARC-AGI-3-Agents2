@@ -164,11 +164,29 @@ class Agent(ABC):
         # Debug logging - Claude Sonnet 4
         logger.debug(f"Agent {self.name} requesting scorecard for card_id: {self.card_id}, game_id: {self.game_id}")
         
-        r = self._session.get(
-            f"{self.ROOT_URL}/api/scorecard/{self.card_id}/{self.game_id}",
-            timeout=1,
-            headers=self.headers,
-        )
+        try:
+            r = self._session.get(
+                f"{self.ROOT_URL}/api/scorecard/{self.card_id}/{self.game_id}",
+                timeout=5,  # Increased timeout from 1s to 5s
+                headers=self.headers,
+            )
+            r.raise_for_status()  # Raise exception for HTTP errors
+            
+            response_data = r.json()
+            if "error" in response_data:
+                logger.error(f"Agent {self.name} - Error in scorecard response: {response_data}")
+                raise Exception(f"Scorecard API error: {response_data['error']}")
+            
+            return Scorecard.model_validate(response_data)
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Agent {self.name} - Failed to get scorecard: {str(e)}")
+            # Return empty scorecard with error information
+            return Scorecard(
+                card_id=self.card_id,
+                cards={},
+                opaque={"error": str(e)}
+            )
         response_data = r.json()
         if "error" in response_data:
             logger.warning(f"Agent {self.name} - Exception during scorecard request: {response_data}")
