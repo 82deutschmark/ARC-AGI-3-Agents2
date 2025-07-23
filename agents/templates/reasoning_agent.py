@@ -44,7 +44,7 @@ class ReasoningActionResponse(BaseModel):
 class ReasoningAgent(ReasoningLLM):
     """A reasoning agent that tracks screen history and builds hypotheses about game rules."""
 
-    MAX_ACTIONS = 20
+    MAX_ACTIONS = 5
     DO_OBSERVATION = True
     MODEL = "o4-mini-2025-04-16"
     MESSAGE_LIMIT = 5
@@ -201,13 +201,85 @@ class ReasoningAgent(ReasoningLLM):
         """Build the user prompt for hypothesis-driven exploration."""
         return textwrap.dedent(
             """
-You are playing a video game.
+You are playing a video game. To win the first level you only need to move up four times. Do this first. 
 
-Your ultimate goal is to understand the rules of the game and explain them to your colleagues.
+IMPORTANT: Use only standard ASCII characters in your reasoning. 
+Avoid special punctuation like en-dashes, em-dashes, or smart quotes. Use regular hyphens (-) and straight quotes (\") only.
+## OBJECTIVE
+Modify your key to match the door's requirements, then reach the door to complete the level.
 
-The game is complex, and may look like an IQ test.
+## ENERGY SYSTEM (SURVIVAL CRITICAL!)
+- **Energy Display**: Purple squares at TOP of screen show remaining energy (UI indicator only)
+- **Energy Loss**: Each movement consumes energy
+- **Energy Refill**: Purple squares scattered in the play grid refill energy to FULL
+- **Game Over**: Zero energy = death
+- **Planning**: Budget extra energy for multiple changer attempts!
 
-You need to determine how the game works on your own.
+## KEY MODIFICATION SYSTEM (CORE MECHANIC)
+
+### Current Key Display
+- **Location**: Bottom-left corner shows your current key
+- **Components**: Has both SHAPE and COLOR elements
+- **Target**: Must match EXACTLY what's shown inside the door
+
+### Shape Changers
+- **Appearance**: 3 touching WHITE squares in the grid with only one other color square in the grid
+- **Function**: Moving over this area changes your key's SHAPE (not color)
+- **Cycling**: Each visit cycles to the next shape variation
+- **Retry Method**: Move off the changer, then back on to cycle again
+- **Strategy**: May need multiple attempts to get the right shape
+
+### Color Changers  
+- **Appearance**: 3x3 grid area that includes ORANGE squares at the bottom and right side
+- **Function**: Moving over this area changes your key's COLOR (not shape)
+- **Cycling**: Each visit cycles to the next color variation
+- **Retry Method**: Move off the changer, then back on to cycle again
+- **Strategy**: May need multiple attempts to get the right color
+
+### The Door (Victory Condition)
+- **Appearance**: Black square with colored shape inside
+- **Target Pattern**: The shape/color inside shows exactly what your key must match
+- **Victory**: Move onto door ONLY when your key matches perfectly
+- **Result**: Scores a point and advances to next level
+
+## STRATEGIC PLANNING FRAMEWORK
+
+### 1. SITUATION ASSESSMENT
+- **Energy Status**: Count purple squares at top - how much energy remains?
+- **Current Key**: What shape and color is your key right now?
+- **Target Key**: What does the door require (shape AND color)?
+- **Gap Analysis**: What needs to change - shape, color, or both?
+
+### 2. RESOURCE MAPPING
+- **Energy Pills**: Locate all purple squares in the grey playable grid for energy refills (there are no energy refills in the first level)
+- **Shape Changers**: Find all sets of 3 white squares for shape modification
+- **Color Changers**: Find all 3x3 orange-containing grids for color modification
+- **Door Location**: Note the black door square position
+
+### 3. ROUTE OPTIMIZATION
+- **Energy Budget**: Calculate energy needed for your planned route (LIMITED supply)
+- **Changer Attempts**: Budget EXTRA energy for multiple changer attempts
+- **Safety Margins**: Plan energy pill stops before running critically low
+- **Efficient Pathing**: Minimize unnecessary movement between objectives
+
+### 4. EXECUTION SEQUENCE
+1. **Assess Energy**: Check if you have enough energy for the full sequence
+2. **Shape First**: If shape is wrong, navigate to shape changer and cycle until correct
+3. **Color Second**: If color is wrong, navigate to color changer and cycle until correct  
+4. **Final Approach**: Once key matches door exactly, move to door for victory
+5. **CRITICAL**: Move only within GREY playable squares - avoid wasting energy
+
+## CHANGER CYCLING STRATEGY
+- **Test and Evaluate**: Move onto changer, check if result is correct
+- **Cycle if Wrong**: Move off changer, then back on to get next variation
+- **Repeat as Needed**: Continue cycling until you get the required pattern
+- **Energy Awareness**: Each cycle attempt costs energy - plan accordingly
+
+## COMMON FAILURE MODES TO AVOID
+1. **Energy Starvation**: Running out of energy before reaching objectives
+2. **Premature Door Attempt**: Moving to door before key matches exactly
+3. **Inefficient Cycling**: Not planning for multiple changer attempts
+4. **Poor Route Planning**: Taking unnecessarily long paths between objectives
 
 To do so, we will provide you with a view of the game corresponding to the bird-eye view of the game, along with the raw grid data.
 
@@ -235,11 +307,8 @@ How to proceed:
 3. Make sure to understand clearly the game rules, energy, walls, doors, keys, etc.
 
 Hint:
-- The game is a 2D platformer.
-- The player can move up, down, left and right.
-- The player has a blue body and a yellow head.
-- There are walls in black.
-- The door has a pink border and a shape inside.
+To win the first level you only need to move up four times. Ignore any other reasoning about the game until
+you have scored 1 point by completing the level.
         """
         )
 

@@ -16,7 +16,7 @@ logger = logging.getLogger()
 class LLM(Agent):
     """An agent that uses a base LLM model to play games."""
 
-    MAX_ACTIONS: int = 80
+    MAX_ACTIONS: int = 10
     DO_OBSERVATION: bool = True
     REASONING_EFFORT: Optional[str] = None
     MODEL_REQUIRES_TOOLS: bool = False
@@ -273,22 +273,22 @@ class LLM(Agent):
             },
             {
                 "name": GameAction.ACTION1.name,
-                "description": "Send this simple input action (1, A, Left).",
+                "description": "Send this simple input action (1, W, Up).",
                 "parameters": empty_params,
             },
             {
                 "name": GameAction.ACTION2.name,
-                "description": "Send this simple input action (2, D, Right).",
+                "description": "Send this simple input action (2, S, Down).",
                 "parameters": empty_params,
             },
             {
                 "name": GameAction.ACTION3.name,
-                "description": "Send this simple input action (3, W, Up).",
+                "description": "Send this simple input action (3, A, Left).",
                 "parameters": empty_params,
             },
             {
                 "name": GameAction.ACTION4.name,
-                "description": "Send this simple input action (4, S, Down).",
+                "description": "Send this simple input action (4, D, Right).",
                 "parameters": empty_params,
             },
             {
@@ -363,11 +363,18 @@ Reply with a few sentences of plain-text strategy observation about the frame to
             """
 # CONTEXT:
 You are an agent playing a dynamic game. Your objective is to
-WIN and avoid GAME_OVER while minimizing actions. There is no resource collection or score maximization.
-You are looking for the exit.
-You can move up, down, left, right, and use the spacebar to interact with the game.
+WIN and avoid GAME_OVER while minimizing actions. To win the first level you only need to move left once.
+Then move up four times. There is no resource collection or score maximization.
+You are looking for the exit. 
+You can move up, down, left, right, and use the spacebar to interact with the game. 
+Action1: Move up
+Action2: Move down
+Action3: Move left
+Action4: Move right
+Action5: Interact with the game
 ## OBJECTIVE
 Modify your key to match the door's requirements, then reach the door to complete the level.
+To win the first level, you only need to move up four times. Simply perform the Action3 four times.
 
 ## ENERGY SYSTEM (SURVIVAL CRITICAL!)
 - **Energy Display**: Purple squares at TOP of screen show remaining energy (UI indicator only)
@@ -400,8 +407,8 @@ Modify your key to match the door's requirements, then reach the door to complet
 ### The Door (Victory Condition)
 - **Appearance**: Black square with colored shape inside
 - **Target Pattern**: The shape/color inside shows exactly what your key must match
-- **Victory**: Move onto door ONLY when your key matches perfectly
-- **Result**: Scores a point and advances to next level
+- **Readiness**: Move in the direction of the door ONLY when your key matches perfectly
+- **Victory Condition**: Scores a point and advances to next level
 
 ## STRATEGIC PLANNING FRAMEWORK
 
@@ -410,6 +417,7 @@ Modify your key to match the door's requirements, then reach the door to complet
 - **Current Key**: What shape and color is your key right now?
 - **Target Key**: What does the door require (shape AND color)?
 - **Gap Analysis**: What needs to change - shape, color, or both?
+- **Victory Condition**: Are you ready to move in the direction of the door?
 
 ### 2. RESOURCE MAPPING
 - **Energy Pills**: Locate all purple squares in the grey playable grid for energy refills (there are no energy refills in the first level)
@@ -732,7 +740,7 @@ Grids. Each Grid is a matrix size INT<0,63> by INT<0,63> filled with
 INT<0,15> values.
 
 You are playing a game called LockSmith. Rules and strategy:
-* RESET: start over, ACTION1: move left, ACTION2: move right, ACTION3: move up, ACTION4: move down (ACTION5 and ACTION6 do nothing in this game)
+* RESET: start over, ACTION1: move up, ACTION2: move down, ACTION3: move left, ACTION4: move right (ACTION5 and ACTION6 do nothing in this game)
 * you may may one action per turn
 * your goal is find and collect a matching key then touch the exit door
 * 6 levels total, score shows which level, complete all levels to win (grid row 62)
