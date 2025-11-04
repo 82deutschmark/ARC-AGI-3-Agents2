@@ -3,7 +3,7 @@ import io
 import json
 import logging
 import textwrap
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Mapping
 
 from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont
@@ -248,34 +248,82 @@ Hint:
         self, messages: List[Dict[str, Any]]
     ) -> ReasoningActionResponse:
         """Call LLM with structured output parsing for reasoning agent."""
-        try:
-            tools = self.build_tools()
+        schema = ReasoningActionResponse.model_json_schema()
+        text_config = {
+            "format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "ReasoningActionResponse",
+                    "schema": schema,
+                },
+            }
+        }
 
-            response = self.client.chat.completions.create(
-                model=self.MODEL,
-                messages=messages,
-                tools=tools,
-                tool_choice="required",
-            )
+        parsed = self._call_responses(
+            self.client,
+            messages=messages,
+            text=text_config,
+            include=["output", "output_parsed", "output_text", "usage"],
+            max_output_tokens=16_384,
+        )
 
-            self.track_tokens(
-                response.usage.total_tokens, response.choices[0].message.content
-            )
-            self.capture_reasoning_from_response(response)
+        assistant_text = parsed.get("text") or ""
+        self._log_usage(parsed.get("usage"), assistant_text)
 
-            response_message = response.choices[0].message
-            tool_calls = response_message.tool_calls
-            if tool_calls:
-                tool_call = tool_calls[0]
-                function_args = json.loads(tool_call.function.arguments)
-                function_args["name"] = tool_call.function.name
-                return ReasoningActionResponse(**function_args)
+        payload = self._extract_structured_payload(parsed)
+        if not payload:
+            raise ValueError("Responses output did not include structured payload")
 
-            raise ValueError("LLM did not return a tool call.")
+        return ReasoningActionResponse(**payload)
 
-        except Exception as e:
-            logger.error(f"LLM structured call failed: {e}")
-            raise e
+    def _extract_structured_payload(
+        self, parsed: Mapping[str, Any]
+    ) -> Dict[str, Any] | None:
+        structured = parsed.get("parsed")
+
+        if isinstance(structured, list) and structured:
+            candidate = structured[0]
+        elif isinstance(structured, Mapping):
+            candidate = structured
+        elif isinstance(structured, str) and structured:
+            try:
+                candidate = json.loads(structured)
+            except json.JSONDecodeError:
+                candidate = None
+        else:
+            candidate = None
+
+        if isinstance(candidate, Mapping):
+            return dict(candidate)
+
+        tool_calls = parsed.get("tool_calls") or []
+        if tool_calls:
+            first = tool_calls[0]
+            function_info = first.get("function", {})
+            arguments = function_info.get("arguments")
+            if isinstance(arguments, str):
+                try:
+                    data = json.loads(arguments)
+                except json.JSONDecodeError:
+                    data = None
+            else:
+                data = arguments
+
+            if isinstance(data, Mapping):
+                payload = dict(data)
+                payload.setdefault("name", function_info.get("name"))
+                return payload
+
+        text_value = parsed.get("text")
+        if isinstance(text_value, str) and text_value:
+            try:
+                data = json.loads(text_value)
+            except json.JSONDecodeError:
+                data = None
+            if isinstance(data, Mapping):
+                return dict(data)
+
+        return None
 
     def define_next_action(self, latest_frame: FrameData) -> ReasoningActionResponse:
         """Define next action for the reasoning agent."""

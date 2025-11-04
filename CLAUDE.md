@@ -106,7 +106,7 @@ The system follows an orchestration pattern where:
 - Session URLs are logged for debugging
 
 **Agent Templates** (in agents/templates/)
-- `random_agent.py`: Chooses actions randomly
+- `random_agent.py`: Chooses actions randomly  -- DO NOT USE!
 - `llm_agents.py`: LLM-based agents (LLM, FastLLM, GuidedLLM, ReasoningLLM) using OpenAI API
 - `langgraph_*`: LangGraph-based agents (Random, Functional, Thinking) for structured workflows
 - `smolagents.py`: SmolAgents-based agents (SmolCodingAgent, SmolVisionAgent) for code/vision reasoning

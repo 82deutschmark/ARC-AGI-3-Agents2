@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import uuid
+from types import SimpleNamespace
 from typing import Any, TypedDict, TypeVar, cast
 
 import langsmith as ls
@@ -13,13 +14,19 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.func import entrypoint
 from langgraph.pregel import Pregel
 from langsmith.schemas import Attachment
-from openai import OpenAI
+from openai import APIError, BadRequestError, OpenAI
 from openai.types.chat import ChatCompletionMessage
 
 from agents.templates.llm_agents import LLM
 
 from ..agent import Agent
 from ..structs import FrameData, GameAction
+from ._oai_responses import (
+    create as responses_create,
+    parse_output as responses_parse_output,
+    should_stream,
+    stream as responses_stream,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +61,7 @@ def build_agent(
     # Modify this code to add things like reasoning, planning, etc.
     openai_client = OpenAI()
     model_kwargs = {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
+    last_response_id: str | None = None
 
     @ls.traceable(run_type="prompt")  # type: ignore[misc]
     def prompt(latest_frame: FrameData, messages: MESSAGES) -> MESSAGES:
@@ -90,13 +98,101 @@ def build_agent(
         tool_choice: str = "required",
         **kwargs: Any,
     ) -> ChatCompletionMessage:
-        return openai_client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=tools,
-            tool_choice=tool_choice,
-            **kwargs,
+        nonlocal last_response_id
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": tool_choice,
+        }
+        payload.update(kwargs)
+
+        if last_response_id:
+            payload["previous_response_id"] = last_response_id
+
+        parsed: dict[str, Any] | None = None
+
+        if should_stream():
+            try:
+                response, streamed_text, streamed_reasoning, _events = responses_stream(
+                    openai_client,
+                    **payload,
+                )
+                parsed = responses_parse_output(
+                    response,
+                    fallback_text=streamed_text,
+                    fallback_reasoning=streamed_reasoning,
+                )
+            except BadRequestError:
+                logger.info("Bad request when streaming. Message dump: %s", messages)
+                raise
+            except APIError as exc:
+                logger.warning(
+                    "Streaming call failed (%s); falling back to non-streaming create()",
+                    exc,
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Unexpected streaming error %s; falling back to non-streaming create()",
+                    exc,
+                )
+
+        if parsed is None:
+            try:
+                response = responses_create(
+                    openai_client,
+                    **payload,
+                )
+            except BadRequestError:
+                logger.info("Bad request when creating response. Message dump: %s", messages)
+                raise
+            parsed = responses_parse_output(response)
+
+        response_id = parsed.get("response_id")
+        if response_id:
+            last_response_id = str(response_id)
+
+        assistant_text = parsed.get("text") or ""
+        raw_tool_calls = list(parsed.get("tool_calls") or [])
+
+        tool_calls = []
+        for tc in raw_tool_calls:
+            function_payload = tc.get("function", {}) if isinstance(tc, dict) else {}
+            arguments = function_payload.get("arguments")
+            if not isinstance(arguments, str):
+                arguments = json.dumps(arguments or {})
+            tool_calls.append(
+                SimpleNamespace(
+                    id=tc.get("id") if isinstance(tc, dict) else None,
+                    type="function",
+                    function=SimpleNamespace(
+                        name=function_payload.get("name", GameAction.ACTION5.name),
+                        arguments=arguments or "{}",
+                    ),
+                )
+            )
+
+        if not tool_calls:
+            logger.warning("Assistant response missing tool call; defaulting to ACTION5.")
+            tool_calls = [
+                SimpleNamespace(
+                    id="tool_missing",
+                    type="function",
+                    function=SimpleNamespace(
+                        name=GameAction.ACTION5.name,
+                        arguments="{}",
+                    ),
+                )
+            ]
+
+        message = SimpleNamespace(
+            role="assistant",
+            content=assistant_text,
+            tool_calls=tool_calls,
         )
+
+        return cast(ChatCompletionMessage, message)
 
     @entrypoint(checkpointer=InMemorySaver())  # type: ignore[misc]
     def agent(
@@ -105,14 +201,13 @@ def build_agent(
         # TODO: handle the frame bursts; explore + learn
         # kinda funny bcs this is really just an llm call rn :)
         sys_messages, *convo = prompt(state["latest_frame"], previous or [])
-        response = llm(
+        ai_msg = llm(
             model=model,
             messages=[sys_messages, *convo],
             tools=tools,
             tool_choice="required",
             **model_kwargs,
         )
-        ai_msg = response.choices[0].message
         ai_msg.tool_calls = ai_msg.tool_calls[:1]  # ensure no extra tools are called
         return entrypoint.final(value=ai_msg, save=[*convo, ai_msg])
 

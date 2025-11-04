@@ -2,10 +2,16 @@ import json
 import logging
 import os
 import textwrap
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
-import openai
-from openai import OpenAI as OpenAIClient
+from openai import APIError, BadRequestError, OpenAI as OpenAIClient
+
+from ._oai_responses import (
+    create as responses_create,
+    parse_output as responses_parse_output,
+    should_stream,
+    stream as responses_stream,
+)
 
 from ..agent import Agent
 from ..structs import FrameData, GameAction, GameState
@@ -32,6 +38,7 @@ class LLM(Agent):
         super().__init__(*args, **kwargs)
         self.messages = []
         self.token_counter = 0
+        self._last_response_id: Optional[str] = None
 
     @property
     def name(self) -> str:
@@ -71,25 +78,19 @@ class LLM(Agent):
             user_prompt = self.build_user_prompt(latest_frame)
             message0 = {"role": "user", "content": user_prompt}
             self.push_message(message0)
-            if self.MODEL_REQUIRES_TOOLS:
-                message1 = {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": self._latest_tool_call_id,
-                            "type": "function",
-                            "function": {
-                                "name": GameAction.RESET.name,
-                                "arguments": json.dumps({}),
-                            },
-                        }
-                    ],
-                }
-            else:
-                message1 = {
-                    "role": "assistant",
-                    "function_call": {"name": "RESET", "arguments": json.dumps({})},  # type: ignore
-                }
+            message1 = {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": self._latest_tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": GameAction.RESET.name,
+                            "arguments": json.dumps({}),
+                        },
+                    }
+                ],
+            }
             self.push_message(message1)
             action = GameAction.RESET
             return action
@@ -114,25 +115,18 @@ class LLM(Agent):
 
         if self.DO_OBSERVATION:
             logger.info("Sending to Assistant for observation...")
-            try:
-                create_kwargs = {
-                    "model": self.MODEL,
-                    "messages": self.messages,
-                }
-                if self.REASONING_EFFORT is not None:
-                    create_kwargs["reasoning_effort"] = self.REASONING_EFFORT
-                response = client.chat.completions.create(**create_kwargs)
-            except openai.BadRequestError as e:
-                logger.info(f"Message dump: {self.messages}")
-                raise e
-            self.track_tokens(
-                response.usage.total_tokens, response.choices[0].message.content
+            parsed = self._call_responses(
+                client,
+                messages=self.messages,
             )
-            message3 = {
+            assistant_text = parsed.get("text") or ""
+            self._log_usage(parsed.get("usage"), assistant_text)
+
+            message3: dict[str, Any] = {
                 "role": "assistant",
-                "content": response.choices[0].message.content,
+                "content": assistant_text,
             }
-            logger.info(f"Assistant: {response.choices[0].message.content}")
+            logger.info(f"Assistant: {assistant_text}")
             self.push_message(message3)
 
         # now ask for the next action
@@ -141,71 +135,68 @@ class LLM(Agent):
         self.push_message(message4)
 
         name = GameAction.ACTION5.name  # default action if LLM doesnt call one
-        arguments = None
-        message5 = None
+        arguments: str | None = None
 
-        if self.MODEL_REQUIRES_TOOLS:
-            logger.info("Sending to Assistant for action...")
-            try:
-                create_kwargs = {
-                    "model": self.MODEL,
-                    "messages": self.messages,
-                    "tools": tools,
-                    "tool_choice": "required",
+        logger.info("Sending to Assistant for action...")
+        parsed_action = self._call_responses(
+            client,
+            messages=self.messages,
+            tools=tools,
+            tool_choice="required" if self.MODEL_REQUIRES_TOOLS else "auto",
+        )
+
+        assistant_text = parsed_action.get("text") or ""
+        self._log_usage(parsed_action.get("usage"), assistant_text)
+
+        tool_calls: list[Mapping[str, Any]] = list(parsed_action.get("tool_calls") or [])
+        if tool_calls:
+            primary_tool_call = tool_calls[0]
+            trimmed_tool_calls = [primary_tool_call]
+            message5 = self._build_assistant_message(
+                {
+                    "text": assistant_text,
+                    "tool_calls": trimmed_tool_calls,
                 }
-                if self.REASONING_EFFORT is not None:
-                    create_kwargs["reasoning_effort"] = self.REASONING_EFFORT
-                response = client.chat.completions.create(**create_kwargs)
-            except openai.BadRequestError as e:
-                logger.info(f"Message dump: {self.messages}")
-                raise e
-            self.track_tokens(response.usage.total_tokens)
-            message5 = response.choices[0].message
-            logger.debug(f"... got response {message5}")
-            tool_call = message5.tool_calls[0]
-            self._latest_tool_call_id = tool_call.id
-            logger.debug(
-                f"Assistant: {tool_call.function.name} ({tool_call.id}) {tool_call.function.arguments}"
             )
-            name = tool_call.function.name
-            arguments = tool_call.function.arguments
+            if message5:
+                self.push_message(message5)
+
+            self._latest_tool_call_id = (
+                primary_tool_call.get("id") or self._latest_tool_call_id
+            )
+            function_payload = primary_tool_call.get("function", {})
+            if isinstance(function_payload, Mapping):
+                name = str(function_payload.get("name", name))
+                raw_arguments = function_payload.get("arguments")
+                if isinstance(raw_arguments, str):
+                    arguments = raw_arguments
+                else:
+                    try:
+                        arguments = json.dumps(raw_arguments or {})
+                    except (TypeError, ValueError):
+                        arguments = None
 
             # sometimes the model will call multiple tools which isnt allowed
-            extra_tools = message5.tool_calls[1:]
+            extra_tools = tool_calls[1:]
             for tc in extra_tools:
                 logger.info(
                     "Error: assistant called more than one action, only using the first."
                 )
                 message_extra = {
                     "role": "tool",
-                    "tool_call_id": tc.id,
+                    "tool_call_id": tc.get("id"),
                     "content": "Error: assistant can only call one action (tool) at a time. default to only the first chosen action.",
                 }
                 self.push_message(message_extra)
         else:
-            logger.info("Sending to Assistant for action...")
-            try:
-                create_kwargs = {
-                    "model": self.MODEL,
-                    "messages": self.messages,
-                    "functions": functions,
-                    "function_call": "auto",
-                }
-                if self.REASONING_EFFORT is not None:
-                    create_kwargs["reasoning_effort"] = self.REASONING_EFFORT
-                response = client.chat.completions.create(**create_kwargs)
-            except openai.BadRequestError as e:
-                logger.info(f"Message dump: {self.messages}")
-                raise e
-            self.track_tokens(response.usage.total_tokens)
-            message5 = response.choices[0].message
-            function_call = message5.function_call
-            logger.debug(f"Assistant: {function_call.name} {function_call.arguments}")
-            name = function_call.name
-            arguments = function_call.arguments
+            message5 = self._build_assistant_message({"text": assistant_text})
+            if message5:
+                self.push_message(message5)
+            logger.warning(
+                "Assistant response did not include a tool call; defaulting to %s.",
+                name,
+            )
 
-        if message5:
-            self.push_message(message5)
         action_id = name
         if arguments:
             try:
@@ -219,6 +210,170 @@ class LLM(Agent):
         action = GameAction.from_name(action_id)
         action.set_data(data)
         return action
+
+    def _call_responses(
+        self,
+        client: OpenAIClient,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[Mapping[str, Any]] | None = None,
+        tool_choice: str | None = None,
+        text: Mapping[str, Any] | None = None,
+        include: list[str] | None = None,
+        max_output_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.MODEL,
+            "messages": messages,
+        }
+
+        if tools:
+            payload["tools"] = tools
+            if tool_choice is not None:
+                payload["tool_choice"] = tool_choice
+        elif tool_choice is not None:
+            logger.debug("Ignoring tool_choice %s because no tools were provided.", tool_choice)
+
+        if self.REASONING_EFFORT is not None:
+            payload["reasoning_effort"] = self.REASONING_EFFORT
+            payload.setdefault("max_output_tokens", 8192)
+
+        if max_output_tokens is not None:
+            payload["max_output_tokens"] = max_output_tokens
+
+        if text is not None:
+            payload["text"] = text
+
+        if include is not None:
+            payload["include"] = include
+
+        if self._last_response_id:
+            payload["previous_response_id"] = self._last_response_id
+
+        parsed: dict[str, Any] | None = None
+        if should_stream():
+            try:
+                response, streamed_text, streamed_reasoning, _events = responses_stream(
+                    client,
+                    **payload,
+                )
+                parsed = responses_parse_output(
+                    response,
+                    fallback_text=streamed_text,
+                    fallback_reasoning=streamed_reasoning,
+                )
+            except BadRequestError:
+                logger.info("Bad request when streaming. Message dump: %s", messages)
+                raise
+            except APIError as exc:
+                logger.warning(
+                    "Streaming call failed (%s); falling back to non-streaming create()",
+                    exc,
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Unexpected streaming error %s; falling back to non-streaming create()",
+                    exc,
+                )
+
+        if parsed is None:
+            try:
+                response = responses_create(
+                    client,
+                    **payload,
+                )
+            except BadRequestError:
+                logger.info("Bad request when creating response. Message dump: %s", messages)
+                raise
+            parsed = responses_parse_output(response)
+
+        return self._finalize_responses(parsed)
+
+    def _finalize_responses(self, parsed: dict[str, Any]) -> dict[str, Any]:
+        response_id = parsed.get("response_id")
+        if response_id:
+            self._last_response_id = str(response_id)
+        self._capture_reasoning(parsed)
+        self._record_response_meta(parsed)
+        return parsed
+
+    def _capture_reasoning(self, parsed: Mapping[str, Any]) -> None:
+        """Hook for subclasses to inspect parsed Responses output."""
+
+    def _record_response_meta(self, parsed: Mapping[str, Any]) -> None:
+        if not hasattr(self, "recorder") or self.is_playback:
+            return
+
+        meta: dict[str, Any] = {}
+
+        response_id = parsed.get("response_id")
+        if response_id:
+            meta["response_id"] = response_id
+
+        output_reasoning = parsed.get("output_reasoning")
+        if isinstance(output_reasoning, Mapping):
+            summary = output_reasoning.get("summary")
+            if summary:
+                meta["reasoning_summary"] = summary
+
+        usage = parsed.get("usage")
+        if isinstance(usage, Mapping) and usage:
+            meta["token_usage"] = dict(usage)
+
+        text_value = parsed.get("text")
+        if text_value:
+            preview = str(text_value)
+            meta["text_preview"] = preview[:160]
+
+        if meta:
+            self.recorder.record({"llm_response": meta})
+
+    def _log_usage(
+        self,
+        usage: Mapping[str, Any] | None,
+        assistant_text: str,
+    ) -> None:
+        if not usage:
+            return
+
+        tokens = self._extract_token_total(usage)
+        if tokens is not None:
+            self.track_tokens(tokens, assistant_text)
+
+    def _extract_token_total(self, usage: Mapping[str, Any]) -> int | None:
+        for key in ("output_tokens", "total_tokens", "completion_tokens"):
+            value = usage.get(key)
+            if isinstance(value, (int, float)):
+                return int(value)
+
+        details = usage.get("output_tokens_details")
+        if isinstance(details, Mapping):
+            total = 0
+            found = False
+            for key in ("text_tokens", "reasoning_tokens", "audio_tokens"):
+                value = details.get(key)
+                if isinstance(value, (int, float)):
+                    total += int(value)
+                    found = True
+            if found:
+                return total
+
+        return None
+
+    def _build_assistant_message(
+        self, payload: Mapping[str, Any]
+    ) -> dict[str, Any] | None:
+        text = payload.get("text")
+        tool_calls = payload.get("tool_calls")
+
+        if not text and not tool_calls:
+            return None
+
+        message: dict[str, Any] = {"role": "assistant"}
+        message["content"] = text or ""
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        return message
 
     def track_tokens(self, tokens: int, message: str = "") -> None:
         self.token_counter += tokens
@@ -414,6 +569,24 @@ class ReasoningLLM(LLM, Agent):
         self._last_response_content = ""
         self._total_reasoning_tokens = 0
 
+    def _capture_reasoning(self, parsed: Mapping[str, Any]) -> None:
+        usage = parsed.get("usage") or {}
+        if isinstance(usage, Mapping):
+            details = usage.get("output_tokens_details")
+            if isinstance(details, Mapping):
+                reasoning_tokens = details.get("reasoning_tokens")
+                if isinstance(reasoning_tokens, (int, float)):
+                    self._last_reasoning_tokens = int(reasoning_tokens)
+                    self._total_reasoning_tokens += self._last_reasoning_tokens
+                else:
+                    self._last_reasoning_tokens = 0
+
+        output_reasoning = parsed.get("output_reasoning") or {}
+        if isinstance(output_reasoning, Mapping):
+            summary = output_reasoning.get("summary")
+            if isinstance(summary, str) and summary:
+                self._last_response_content = summary
+
     def choose_action(
         self, frames: list[FrameData], latest_frame: FrameData
     ) -> GameAction:
@@ -447,8 +620,6 @@ class ReasoningLLM(LLM, Agent):
         # Store the response content for reasoning context (avoid empty or JSON strings)
         if message and not message.startswith("{"):
             self._last_response_content = message
-        self._last_reasoning_tokens = tokens
-        self._total_reasoning_tokens += tokens
 
     def capture_reasoning_from_response(self, response: Any) -> None:
         """Helper method to capture reasoning tokens from OpenAI API response.
@@ -545,8 +716,6 @@ class GuidedLLM(LLM, Agent):
         # Store the response content for reasoning context (avoid empty or JSON strings)
         if message and not message.startswith("{"):
             self._last_response_content = message
-        self._last_reasoning_tokens = tokens
-        self._total_reasoning_tokens += tokens
 
     def capture_reasoning_from_response(self, response: Any) -> None:
         """Helper method to capture reasoning tokens from OpenAI API response.
