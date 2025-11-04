@@ -127,6 +127,7 @@ class GameAction(Enum):
     ACTION4 = (4, SimpleAction)
     ACTION5 = (5, SimpleAction)
     ACTION6 = (6, ComplexAction)
+    ACTION7 = (7, SimpleAction)
 
     action_type: Union[Type[SimpleAction], Type[ComplexAction]]
     action_data: Union[SimpleAction, ComplexAction]
@@ -211,6 +212,7 @@ class FrameData(BaseModel):
     action_input: ActionInput = Field(default_factory=lambda: ActionInput())
     guid: Optional[str] = None
     full_reset: bool = False
+    available_actions: list[GameAction] = Field(default_factory=list)
 
     def is_empty(self) -> bool:
         return len(self.frame) == 0
