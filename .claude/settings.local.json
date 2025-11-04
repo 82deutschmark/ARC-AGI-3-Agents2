@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tree /F D:GitHubARC-AGI-3-Agents2 /L 2)"
+      "Bash(tree /F D:GitHubARC-AGI-3-Agents2 /L 2)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []
