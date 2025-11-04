@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "allow all bash and webfetch"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

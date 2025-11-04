@@ -1,5 +1,10 @@
 # Repository Guidelines
 
+## AgentOps
+- Files you create or edit should ideally have a brief header explaining what they do, when they were created, and who they were modified by.
+- We use the Responses API with OpenAI, and NOT the old Chat Completions API.
+
+
 ## Project Structure & Module Organization
 - Core code in `agents/` (e.g., `agent.py`, `swarm.py`, `structs.py`, tracing and templates).
 - Entry point `main.py` runs agents against ARC-AGI-3 API.
