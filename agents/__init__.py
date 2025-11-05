@@ -1,6 +1,12 @@
 from typing import Type, cast
+import sys
+import os
 
 from dotenv import load_dotenv
+
+# Import custom agent before loading agents
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from custom_agent import *
 
 from .agent import Agent, Playback
 from .recorder import Recorder
