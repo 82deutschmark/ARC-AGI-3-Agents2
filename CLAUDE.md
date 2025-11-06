@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ARC-AGI-3-Agents is a framework for building and running agents that play games in the ARC-AGI-3 competition. Agents are autonomous systems that interact with the ARC-AGI-3 API to play puzzle games, submit actions, and receive game states in return. The project supports multiple agent architectures (random, LLM-based, LangGraph, smolagents, reasoning agents) and includes recording/playback capabilities for agent sessions.
 
+**For a deep dive into how agents perceive game state and make decisions, see `docs/guide/how-agents-work.md`**
+
 ## Build, Test, and Development Commands
 
 ### Installation & Setup
