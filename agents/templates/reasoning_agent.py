@@ -50,7 +50,7 @@ class ReasoningAgent(ReasoningLLM):
 
     MAX_ACTIONS = 400
     DO_OBSERVATION = True
-    MODEL = "o4-mini"
+    MODEL = "gpt-5-nano"
     MESSAGE_LIMIT = 5
     REASONING_EFFORT = "high"
     ZONE_SIZE = 16
