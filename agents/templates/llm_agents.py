@@ -1,3 +1,6 @@
+### Needs audit for 2026!!!!
+##
+
 import json
 import logging
 import os
@@ -22,7 +25,7 @@ class LLM(Agent):
     MODEL_REQUIRES_TOOLS: bool = False
 
     MESSAGE_LIMIT: int = 10
-    MODEL: str = "gpt-4o-mini"
+    MODEL: str = "xiaomi/mimo-v2-flash:free"
     messages: list[dict[str, Any]]
     token_counter: int
 

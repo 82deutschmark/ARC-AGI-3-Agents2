@@ -1,3 +1,7 @@
+## Prompts is putting it lightly; this is overfit and 
+# spoilers and specific instructions solely for Game LS20. 
+
+
 """
 Prompts for the LangGraph agent.
 """
