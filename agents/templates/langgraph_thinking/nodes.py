@@ -1,7 +1,8 @@
 """
 This file contains various nodes you can add to a LangGraph workflow for solving the game.
 """
-
+### One of the most interesting and valuable files in here. 
+### Needs audit for 2026.
 import random
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
